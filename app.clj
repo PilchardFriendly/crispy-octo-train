@@ -1,32 +1,41 @@
 #!/usr/bin/env bb
 (require '[babashka.deps :as deps])
 
-(deps/add-deps '{:deps {org.clojars.askonomm/ruuter {:mvn/version "1.3.2"}}})
+(deps/add-deps '{:deps {org.clojars.askonomm/ruuter {:mvn/version "1.3.2"}
+                        metosin/malli {:mvn/version "0.11.0"}}})
 
 (require '[org.httpkit.server :as srv]
          '[clojure.java.browse :as browse]
-         '[ruuter.core :as r] 
+         '[ruuter.core :as r]
          '[clojure.string :as str]
          '[hiccup.core :as h]
          '[cheshire.core :as json]
-         '[taoensso.timbre :as timbre])
+         '[taoensso.timbre :as timbre]
+         '[malli.core :as m]
+         '[malli.dev :as dev])
 
 (import '[java.net URLDecoder])
 
-(defmacro spy "Wrapper around timbre/spy" [& rest] 
+(defmacro spy "Wrapper around timbre/spy" [& rest]
   `(timbre/spy ~@rest))
 
-(defn debug
-  ([v d bmf] (debug v d bmf nil))
-  ([v f fmt amf]
-   (let [r (f v)]
-     (spy :debug fmt v)
-     (when amf (spy :debug amf r))
-     r)))
+(let [f (resolve 'unstrument)]
+  (when f
+        (@f)))
+
+;; (defn debug
+;;   ([v d bmf] (debug v d bmf nil))
+;;   ([v f fmt amf]
+;;    (let [r (f v)]
+;;      (spy :debug fmt v)
+;;      (when amf (spy :debug amf r))
+;;      r)))
+
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; http serving
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
- #_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}
+#_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}
 (defn parse-body [body]
   (-> body
       slurp
@@ -40,22 +49,61 @@
         (str/split #"=")
         second)))
 
+(def Html :string)
+(def HttpStackSuccess [:map [:body :string] [:status :int]])
+(def HttpStatus :int)
+(defn with-hiccup [f]
+  [:schema {:registry {::hiccup [:orn
+                                 [:node [:catn
+                                         [:name keyword?]
+                                         [:props [:? [:map-of keyword? any?]]]
+                                         [:children [:* [:schema [:ref ::hiccup]]]]]]
+                                 [:primitive [:orn
+                                              [:nil nil?]
+                                              [:boolean boolean?]
+                                              [:number number?]
+                                              [:text string?]]]]}}
+   (f)])
 
+
+(defn with-renderable [f] (with-hiccup (fn [] [:schema {:registry {::renderable [:ref ::hiccup]}} (f)])))
+(def RenderContent (with-renderable 
+                     (fn [] [:or [:sequential [:ref ::renderable]] [:ref ::renderable]])))
+
+(m/=> render [:function 
+              [:=> [:cat RenderContent] HttpStackSuccess]
+              [:=> [:cat RenderContent HttpStatus] HttpStackSuccess]])
 (defn render [handler & [status]]
   {:status (or status 200)
    :body (h/html handler)})
-(defn redirect [{:keys [location event]} & [status]]
+
+(def ClientEvent [:map
+                  [:newBoard [:map [:id :uuid]]]])
+(def UrlPath [:string])
+(def Redirection [:map
+                  [:location UrlPath]
+                  [:event {:optional true} ClientEvent]])
+(def RedirectionStatus [:enum {:optional true} 302 303])
+(def HttpStackRedirection [:map
+                           [:status {:default 303} :int]
+                           [:body nil?]
+                           [:headers [:map ["Location" UrlPath] ["HX-Redirect" UrlPath] ["HX-Trigger" {:optional true} :string]]]])
+(m/=> redirect
+      [:function
+       [:=> [:cat Redirection] HttpStackRedirection]
+       [:=> [:cat Redirection RedirectionStatus] HttpStackRedirection]])
+
+(defn redirect [{:keys [location event]}  & [status]]
   (let [location' (str location)
         trigger (when event (json/generate-string event))
         headers {"Location" location'
                  "HX-Redirect" location'}
-        headers' (if trigger (assoc headers "HX-Trigger" trigger) headers)
-        ]
+        headers' (if trigger (assoc headers "HX-Trigger" trigger) headers)]
     {:status (or status 303)
      :headers headers'
      :body nil}))
 
-(def doctype "<!DOCTYPE html>")
+(def doctype  "<!DOCTYPE html>")
 
 (def htmx-script-fragment
             ;; <script src= "https://unpkg.com/htmx.org@1.9.2" 
@@ -68,12 +116,13 @@
               :integrity integrity
               :crossorigin cross-origin}]))
 
+(m/=> page [:=> [:cat [:map [:title :string] [:body :string]]] [:sequential :string]])
 (defn page [{:keys [title body]}]
-  (spy (list doctype 
-        (h/html 
-         [:head [:title title] 
-          htmx-script-fragment 
-          [:body (spy body)]]))))
+  (list doctype
+        (h/html
+         [:head [:title title]
+          htmx-script-fragment
+          [:body body]])))
 
 ;;;
 ;;; post -> new -> +id -> board-markup['id]
@@ -84,52 +133,83 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Board Stuff
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn board-model-new [] 
-  (let [row' #(vec (boolean-array 3 false))]
-   {:id (random-uuid)
-   :cells (vec (repeatedly 3 row'))}))
-  
+(def Board (m/schema
+            [:map [:id :uuid]
+             [:cells [:vector [:vector :boolean]]]
+             [:version {:optional true} :string]]))
+
+(m/=> board-model-new [:=> [:cat] Board])
+(defn board-model-new []
+  (let [row' #(vec (boolean-array 3 false))
+        model {:id (random-uuid)
+               :cells (vec (repeatedly 3 row'))}]
+    model))
+
+
+
+(def Boards (m/schema [:map-of :uuid Board]))
+
 (defonce boards (atom {}))
 
+#_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}
+
+(m/=> boards-state-new [:=> [:cat] Board])
 (defn boards-state-new []
   (let [board' (spy (board-model-new))]
     (swap! boards #(assoc %1 (:id board') board'))
     board'))
 
+(m/=> boards-state-get [:=> [:cat :uuid] Board])
 (defn boards-state-get [id]
-  (spy id)
-  (get (spy @boards) id))
+  (get @boards id))
 
+(def BoardFragment [:map [:id :uuid] [:cells [:vector [:vector :boolean]]]])
+
+(m/=> board-fragment [:=> [:cat BoardFragment] RenderContent])
 (defn board-fragment [{:keys [id cells]}]
-  (let [cells-td #(vec [:td (str %1)])
-        cells-tr #(vec [:tr (map cells-td %1)])]
-   (list [:div (str "Board " id) ] 
-         [:table [:tbody (map cells-tr cells)]])))
+  (let [cells-td (fn [c] [:td (h/html c)])
+        cells-tr (fn [cs] (->> cs
+                              (map cells-td)
+                              (into [:tr])))
+        cells-trs (->> cells (map cells-tr) spy)]
+    (list [:div (str "Board " id)]
+          [:table (into [:tbody] cells-trs)])))
 
+(m/=> board-template [:=> [:cat BoardFragment] RenderContent])
 (defn board-template [model]
   (-> model
-      (debug board-fragment "model" "fragment")
-      h/html))
+      board-fragment))
 
-(defn boards-post [req]
-  (spy req)
+(def RedirectionForBoard [:map [:id :uuid]])
+
+; This bit is cool - we can send an event back to the UI, and have HTML send it to listeners
+
+(m/=> redirection-for-board [:=> [:cat RedirectionForBoard] Redirection])
+(defn redirection-for-board [{:keys [id]} ]
+  {:location (str "/board/" id) :event {:newBoard {:id id}}})
+
+(m/=> boards-post [:=> [:cat :any] Redirection])
+(defn boards-post [_]
   (-> (boards-state-new)
-      :id
-      ;;; This bit is cool - we can send an event back to the UI, and have HTML send it to listeners
-      (debug #(hash-map :location (str "/board/" %1) :event {:newBoard {:id %1}}) "id" "redirect")
-      (debug redirect "redirect" "response")))
+      redirection-for-board
+      redirect ))
 
+(m/=> boards-get [:=> [:cat BoardFragment] Html])
 (defn boards-get [req]
-  (render (page {:fragment "board-index" :title "Board" :body (board-template req)})))
+  (-> {:fragment "board-index" :title "Board" :body (board-template req)}
+      page
+      render))
 
+(def GetBoardRequest [:map [:params [:map [:id :string]]]])
+(m/=> board-get [:=> [:cat GetBoardRequest] HttpStackSuccess])
 (defn board-get [req]
   (-> req
-      (debug :params "request")
-      (debug :id "params")
+      (get-in [:params :id])
       parse-uuid
-      (debug boards-state-get "id")
-      (debug board-template "board" "html") 
+      boards-state-get
+      board-template
       render))
+
 
 (defn- board-new-action-fragment []
   [:button {:hx-post "/board" :hx-swap "outerHTML"} "New game"])
@@ -153,12 +233,12 @@
 
 
 (defn app-template  [_]
-  (page {:title "Htmx Game of Life3" 
+  (page {:title "Htmx Game of Life3"
          :body (h/html (board-new-action-fragment))}))
 
 (defn app-index [{:keys [query-string headers]}]
   (let [filter (parse-query-string query-string)
-        ajax-request? (spy :info "hx-request" (get headers "hx-request"))]
+        ajax-request? (get headers "hx-request")]
     (if (and filter ajax-request?)
       (render (list []))
       (render (app-template filter)))))
@@ -203,11 +283,18 @@
     (reset! server nil)))
 
 #_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}
-(defn restart [] 
+(defn restart []
   (stop)
   (swap! boards (constantly {}))
   (start))
 
+(defn instrument [] (dev/start!))
+(defn unstrument [] (dev/stop!))
+#_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}
+(defn restrument [] (unstrument) (instrument))
+
 (when (= *file* (System/getProperty "babashka.file"))
   (start)
   (@promise))
+
+(instrument)
