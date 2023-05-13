@@ -70,12 +70,13 @@
 (def RenderContent (with-renderable 
                      (fn [] [:or [:sequential [:ref ::renderable]] [:ref ::renderable]])))
 
-(m/=> render [:function 
-              [:=> [:cat RenderContent] HttpStackSuccess]
-              [:=> [:cat RenderContent HttpStatus] HttpStackSuccess]])
+
 (defn render [handler & [status]]
   {:status (or status 200)
-   :body (h/html handler)})
+   :body handler})
+(m/=> render [:function
+              [:=> [:cat RenderContent] HttpStackSuccess]
+              [:=> [:cat RenderContent HttpStatus] HttpStackSuccess]])
 
 (def ClientEvent [:map
                   [:newBoard [:map [:id :uuid]]]])
@@ -88,10 +89,6 @@
                            [:status {:default 303} :int]
                            [:body nil?]
                            [:headers [:map ["Location" UrlPath] ["HX-Redirect" UrlPath] ["HX-Trigger" {:optional true} :string]]]])
-(m/=> redirect
-      [:function
-       [:=> [:cat Redirection] HttpStackRedirection]
-       [:=> [:cat Redirection RedirectionStatus] HttpStackRedirection]])
 
 (defn redirect [{:keys [location event]}  & [status]]
   (let [location' (str location)
@@ -102,6 +99,11 @@
     {:status (or status 303)
      :headers headers'
      :body nil}))
+(m/=> redirect
+      [:function
+       [:=> [:cat Redirection] HttpStackRedirection]
+       [:=> [:cat Redirection RedirectionStatus] HttpStackRedirection]])
+
 
 (def doctype  "<!DOCTYPE html>")
 
@@ -116,14 +118,17 @@
               :integrity integrity
               :crossorigin cross-origin}]))
 
-(m/=> page [:=> [:cat [:map [:title :string] [:body :string]]] [:sequential :string]])
-(defn page [{:keys [title body]}]
-  (list doctype
-        (h/html
-         [:head [:title title]
-          htmx-script-fragment
-          [:body body]])))
 
+(defn page [{:keys [title body]}]
+  (h/html (list 
+           [:head [:title title] htmx-script-fragment]
+           [:body body])))
+(m/=> page [:=> [:cat [:map [:title :string] [:body RenderContent]]] :string])
+
+
+(defn fragment [content]
+  (h/html [:div (list content)]))
+(m/=> fragment [:=> [:cat RenderContent] Html])
 ;;;
 ;;; post -> new -> +id -> board-markup['id]
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -167,7 +172,7 @@
 
 (m/=> board-fragment [:=> [:cat BoardFragment] RenderContent])
 (defn board-fragment [{:keys [id cells]}]
-  (let [cells-td (fn [c] [:td (h/html c)])
+  (let [cells-td (fn [c] [:td c])
         cells-tr (fn [cs] (->> cs
                               (map cells-td)
                               (into [:tr])))
@@ -196,19 +201,23 @@
 
 (m/=> boards-get [:=> [:cat BoardFragment] Html])
 (defn boards-get [req]
-  (-> {:fragment "board-index" :title "Board" :body (board-template req)}
+  (-> {:fragment "board-index" :title "Boards" :body (board-template req)}
       page
       render))
 
 (def GetBoardRequest [:map [:params [:map [:id :string]]]])
-(m/=> board-get [:=> [:cat GetBoardRequest] HttpStackSuccess])
+
 (defn board-get [req]
-  (-> req
+  (let [mk-page (fn [f] {:fragment "board-get" :title "Board" :body f})]
+   (-> req
       (get-in [:params :id])
       parse-uuid
       boards-state-get
-      board-template
-      render))
+      board-template 
+      mk-page
+      page
+      render)))
+
 
 
 (defn- board-new-action-fragment []
@@ -234,14 +243,15 @@
 
 (defn app-template  [_]
   (page {:title "Htmx Game of Life3"
-         :body (h/html (board-new-action-fragment))}))
+         :body (board-new-action-fragment)}))
 
 (defn app-index [{:keys [query-string headers]}]
   (let [filter (parse-query-string query-string)
         ajax-request? (get headers "hx-request")]
-    (if (and filter ajax-request?)
-      (render (list []))
-      (render (app-template filter)))))
+    (render 
+     (if (and filter ajax-request?)
+      (fragment (list []))
+      (app-template filter)))))
 
 (def app-routes [{:path "/"
                   :method :get
