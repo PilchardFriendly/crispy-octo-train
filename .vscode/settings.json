@@ -1,0 +1,10 @@
+{
+    "calva.replConnectSequences": [
+        {
+            "name": "host",
+            "projectType": "babashka",
+            "autoSelectForJackIn": true
+        }
+    ],
+    "calva.evalOnSave": true
+}
