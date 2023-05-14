@@ -1,7 +1,10 @@
 (ns gol.board 
-  (:use [gol.schemas]
-        [gol.htmx])
-  (:require [malli.core :as m]))
+  (:require [malli.core :as m]
+            [gol.htmx :as htmx :refer [redirect page render]]
+            [gol.schemas :as schemas :refer
+             [Board BoardFragment Boards GetBoardRequest 
+              Html Redirection RedirectionForBoard 
+              RenderContent]]))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;

@@ -1,7 +1,6 @@
-(ns gol.app
-  (:use [gol.schemas]
-        [gol.htmx]
-        [gol.board]))
+(ns gol.app 
+  (:require [gol.htmx :as html :refer [render fragment page parse-query-string]]
+            [gol.board :as board :refer [board-new-action-fragment]]))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;

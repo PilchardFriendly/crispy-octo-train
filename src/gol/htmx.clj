@@ -1,10 +1,11 @@
 (ns gol.htmx
-  (:use [gol.schemas])
   (:require [cheshire.core :as json]
             [malli.core :as m]
             [hiccup2.core :as h]
             [hiccup.compiler :as hc]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [gol.schemas :as schemas :refer [Html HttpStackRedirection HttpStackSuccess HttpStatus Redirection RedirectionStatus RenderContent]]))
+
 (import '[java.net URLDecoder])
 
 (defn redirect [{:keys [location event]}  & [status]]
