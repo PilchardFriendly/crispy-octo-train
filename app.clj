@@ -1,14 +1,10 @@
 #!/usr/bin/env bb
-(require '[babashka.deps :as deps])
-
-(deps/add-deps '{:deps {org.clojars.askonomm/ruuter {:mvn/version "1.3.2"}
-                        metosin/malli {:mvn/version "0.11.0"}}})
-
 (require '[org.httpkit.server :as srv]
          '[clojure.java.browse :as browse]
          '[ruuter.core :as r]
          '[clojure.string :as str]
-         '[hiccup.core :as h]
+         '[hiccup2.core :as h]
+         '[hiccup.compiler :as hc]
          '[cheshire.core :as json]
          '[taoensso.timbre :as timbre]
          '[malli.core :as m]
@@ -22,15 +18,6 @@
 (let [f (resolve 'unstrument)]
   (when f
         (@f)))
-
-;; (defn debug
-;;   ([v d bmf] (debug v d bmf nil))
-;;   ([v f fmt amf]
-;;    (let [r (f v)]
-;;      (spy :debug fmt v)
-;;      (when amf (spy :debug amf r))
-;;      r)))
-
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; http serving
@@ -104,9 +91,6 @@
        [:=> [:cat Redirection] HttpStackRedirection]
        [:=> [:cat Redirection RedirectionStatus] HttpStackRedirection]])
 
-
-(def doctype  "<!DOCTYPE html>")
-
 (def htmx-script-fragment
             ;; <script src= "https://unpkg.com/htmx.org@1.9.2" 
             ;;       integrity= "sha384-L6OqL9pRWyyFU3+/bjdSri+iIphTN/bvYyM37tICVyOJkWZLpP2vGn6VUEXgzg6h" 
@@ -120,17 +104,18 @@
 
 
 (defn page [{:keys [title body]}]
-  (h/html (list 
-           [:head [:title title] htmx-script-fragment]
-           [:body body])))
+  (-> (list
+       [:head [:title title] htmx-script-fragment]
+       [:body body])
+      h/html
+      hc/render-html))
 (m/=> page [:=> [:cat [:map [:title :string] [:body RenderContent]]] :string])
 
 
 (defn fragment [content]
-  (h/html [:div (list content)]))
+  (hc/render-html [:div (list content)]))
 (m/=> fragment [:=> [:cat RenderContent] Html])
-;;;
-;;; post -> new -> +id -> board-markup['id]
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Cells
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -156,17 +141,19 @@
 
 (defonce boards (atom {}))
 
-#_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}
-
 (m/=> boards-state-new [:=> [:cat] Board])
 (defn boards-state-new []
   (let [board' (spy (board-model-new))]
     (swap! boards #(assoc %1 (:id board') board'))
     board'))
 
-(m/=> boards-state-get [:=> [:cat :uuid] Board])
+(defn boards-state [] @boards)
+(m/=> boards-state [:=> [:cat] Boards])
+
+
 (defn boards-state-get [id]
   (get @boards id))
+(m/=> boards-state-get [:=> [:cat :uuid] Board])
 
 (def BoardFragment [:map [:id :uuid] [:cells [:vector [:vector :boolean]]]])
 
@@ -206,7 +193,7 @@
       render))
 
 (def GetBoardRequest [:map [:params [:map [:id :string]]]])
-
+(m/=> board-get [:=> [:cat GetBoardRequest] Html])
 (defn board-get [req]
   (let [mk-page (fn [f] {:fragment "board-get" :title "Board" :body f})]
    (-> req
