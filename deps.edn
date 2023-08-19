@@ -1,0 +1,13 @@
+{:deps {org.clojars.askonomm/ruuter {:mvn/version "1.3.2"}
+        metosin/malli {:mvn/version "0.11.0"}
+        hiccup/hiccup {:mvn/version "2.0.0-RC1"}
+        org.clojure/algo.generic {:mvn/version "0.1.3"}
+        org.clojure/spec.alpha {:mvn/version "0.3.218"}
+        cheshire/cheshire  {:mvn/version "5.11.0"} 
+        com.taoensso/timbre {:mvn/version "6.2.2"}
+        fipp/fipp {:mvn/version "0.6.20"}
+        }
+ :aliases
+ {:test {:extra-deps {lambdaisland/kaocha {:mvn/version "1.85.1342"}
+                      djblue/portal {:mvn/version "0.45.1"}}
+         :main-opts ["-m" "kaocha.runner"]}}}

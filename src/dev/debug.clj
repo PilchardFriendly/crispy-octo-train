@@ -1,4 +1,4 @@
-(ns gol.debug 
+(ns dev.debug 
   (:require [taoensso.timbre :as timbre]))
 
 #_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}

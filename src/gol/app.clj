@@ -1,25 +1,35 @@
 (ns gol.app 
-  (:require [gol.htmx :as html :refer [render fragment page parse-query-string]]
-            [gol.board :as board :refer [board-new-action-fragment]]))
+  (:require
+   [malli.core :as m]
+   [dev.monitoring :as mon]
+   [gol.htmx :as htmx]
+   [gol.board :as board :refer [board-new-action-fragment]]
+   [gol.schemas :as schemas]))
 
-
+(mon/unstrument)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; App Stuff
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
+(def Filter :int)
 
 
-(defn app-template  [_]
-  (page {:title "Htmx Game of Life3"
-         :body (board-new-action-fragment)}))
+#_{:clj-kondo/ignore [:unused-binding]}
+(defn app-template  [_ & {:keys [model]}]
+  {:title "Htmx Game of Life3"
+   :content (list (board-new-action-fragment)
+                  [:div#boards-master {:hx-trigger "load, newBoard from:body"
+                                       :hx-get "/board"}]
+                  [:div#board-detail])})
+(comment m/=> app-template (schemas/view-template Filter))
 
-(defn app-index [{:keys [query-string headers]}]
-  (let [filter (parse-query-string query-string)
-        ajax-request? (get headers "hx-request")]
-    (render
-     (if (and filter ajax-request?)
-       (fragment (list []))
-       (app-template filter)))))
 
+(defn app-index [_] 
+  {:template app-template
+   :model 5})
+
+#_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}
 (def app-routes [{:path "/"
                   :method :get
-                  :response app-index}])
+                  :response (htmx/handle-view app-index)}])
+(comment m/=> app-index (schemas/view Filter))
+(mon/instrument)

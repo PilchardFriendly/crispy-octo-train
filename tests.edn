@@ -1,0 +1,4 @@
+#kaocha/v1 {:kaocha/reporter [kaocha.report/documentation]
+            :kaocha/plugins [
+                             :pilchardfriendly.kaocha.plugins/portal]}
+                            ;; ]}

@@ -1,47 +1,107 @@
-(ns gol.schemas)
+(ns gol.schemas
+  (:require [dev.monitoring :as mon]
+            [http.ring :as ring]
+            [hiccup :as h :refer [hiccup]]
+            [dev.meta :as dev]))
 
-(def Html :string)
-(def HttpStackSuccess [:map [:body :string] [:status :int]])
-(def HttpStatus :int)
+(mon/unstrument)
 
-(defn with-hiccup [f]
-  [:schema {:registry {::hiccup [:orn
-                                 [:node [:catn
-                                         [:name keyword?]
-                                         [:props [:? [:map-of keyword? any?]]]
-                                         [:children [:* [:schema [:ref ::hiccup]]]]]]
-                                 [:primitive [:orn
-                                              [:nil nil?]
-                                              [:boolean boolean?]
-                                              [:number number?]
-                                              [:text string?]]]]}}
-   (f)])
+(defn options-schema [options]
+  (let [kv->key-schema (fn [[k v]] [k {:optional true} v])
+        kv->arg-schema (fn [[k v]] [:cat [:= k] v])]
+    [:altn
+     [:map (into [:map] (map kv->key-schema options))]
+     [:args
+      [:* (into [:alt] (map kv->arg-schema options))]]]))
 
 
-(defn with-renderable [f] (with-hiccup (fn [] [:schema {:registry {::renderable [:ref ::hiccup]}} (f)])))
-(def RenderContent (with-renderable
-                     (fn [] [:or [:sequential [:ref ::renderable]] [:ref ::renderable]])))
+(def RenderContent [:or
+                    [:sequential hiccup]
+                    [hiccup]])
 
-(def ClientEvent [:map
-                  [:newBoard [:map [:id :uuid]]]])
+(def NewBoardEvent  [:map [:id :uuid]])
+(def BoardEvent [:map
+                  [:newBoard NewBoardEvent]])
+
 (def UrlPath [:string])
 (def Redirection [:map
-                  [:location UrlPath]
-                  [:event {:optional true} ClientEvent]])
-(def RedirectionStatus [:enum {:optional true} 302 303])
+                  [:location UrlPath]])
+
+(def RedirectionStatus [:int {:default 303}])
+
+
+(def RedirectionOptions (options-schema {:status RedirectionStatus 
+                                         :event [:map-of :any :any]}))
+
 (def HttpStackRedirection [:map
-                           [:status {:default 303} :int]
-                           [:body nil?]
-                           [:headers [:map ["Location" UrlPath] ["HX-Redirect" UrlPath] ["HX-Trigger" {:optional true} :string]]]])
+                           [:status :int]
+                           [:content nil?]
+                           [:headers [:map 
+                                      ["Location" UrlPath] 
+                                      ["HX-Redirect" UrlPath] 
+                                      ["HX-Trigger" {:optional true} :string]]]])
 
-(def Board [:map [:id :uuid]
-             [:cells [:vector [:vector :boolean]]]
-             [:version {:optional true} :string]])
+;; (def GetBoardRequest [:map [:params [:map [:id :string]]] [:event {:optional true} BoardEvent]])
 
-(def Boards [:map-of :uuid Board])
+(def Html :string)
+(def ViewRedirectStatus [:status [:enum 302 303]])
+;; (def HttpStackSuccess [:map 
+;;                        [:content :string] 
+;;                        [:status :int]
+;;                        [:headers [:map :string :string]]])
+;; (def HttpStatus :int)
+;; (def RenderFlags [:map
+;;                   [:status {:optional true :default 200} HttpStatus]
+;;                   [:event {:optional true}]])
+(def HttpStackRequest ring/request)
+(defn request-handler [resultSchema & [argSchema]]
+  [:function [:=> (into [:cat HttpStackRequest] (or argSchema [])) resultSchema]])
 
-(def BoardFragment [:map [:id :uuid] [:cells [:vector [:vector :boolean]]]])
+(defn template-result [& eventSpec] 
+  [:map
+   [:content RenderContent]
+   [:status {:optional true} [:enum 200]]
+   [:event {:optional true} eventSpec]])
 
-(def RedirectionForBoard [:map [:id :uuid]])
+(defn view-template [modelSpec & eventSpec] 
+  (request-handler 
+   (apply template-result (if eventSpec [eventSpec] []))
+   [[:map [:model modelSpec]]]))
 
-(def GetBoardRequest [:map [:params [:map [:id :string]]]])
+(def FragmentResponse RenderContent)
+(defn view-fragment [modelSpec]
+  [:function [:=> [:cat modelSpec] FragmentResponse]])
+
+(defn view-result [modelSpec & eventSpec] 
+  [:orn
+   [:template
+    [:map
+     [:template (view-template modelSpec)]
+     [:model modelSpec]]]
+   
+   [:redirect
+    [:map
+     ViewRedirectStatus
+     [:location UrlPath]
+     [:event {:optional true} (if eventSpec eventSpec :any)]]]
+   [:content
+     (apply template-result (if eventSpec [eventSpec] []))]])
+
+(defn view [modelSpec]
+  (request-handler (view-result modelSpec)))
+
+(defn view-action-result [modelSpec eventSpec]
+  (:and (view-result modelSpec) [:map [:event eventSpec]]))
+
+;; [:forall :a?]
+(defn view-action [modelSpec eventSpec & [argsSchema]]
+  (request-handler (view-action-result modelSpec eventSpec) argsSchema))
+
+;; (def registry 
+;;   (mr/registry
+;;    {
+;;     }))
+;; (reg/register! ::schema registry)
+
+(dev/annotate)
+(mon/instrument)
