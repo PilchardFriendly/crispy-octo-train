@@ -5,7 +5,8 @@
         org.clojure/algo.generic {:mvn/version "0.1.3"}
         lambdaisland/kaocha {:mvn/version "1.84.1335"}
         org.clojure/spec.alpha {:mvn/version "0.3.218"}
-        djblue/portal {:mvn/version "0.45.1"}}
+        djblue/portal {:mvn/version "0.45.1"}
+        riverford/objection {:mvn/version "0.1.3"}}
  :tasks {
          xtest {;; :extra-paths ["test"]
                 :extra-deps {io.github.cognitect-labs/test-runner

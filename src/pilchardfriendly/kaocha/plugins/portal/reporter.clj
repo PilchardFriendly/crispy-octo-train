@@ -12,12 +12,7 @@
 (defmethod portal-reporter* :begin-test-suite [_ e] e)
 (defmethod portal-reporter* :end-test-suite [_ e] e)
 (defmethod portal-reporter* :summary [state e]
-  ;; (log/debug e) 
-  ;; (log/debug @state) 
-
-  (let [[old _] (reset-vals! state nil)]
-    ;; (log/debug old) 
-    (report->tap> old))
+  (-> state (reset-vals! nil) first report->tap>)
   e)
 
 (defn portal-reporter
@@ -26,6 +21,7 @@
   ([ref e]
    (portal-reporter* ref e)))
 
-(defn install [cfg] (-> cfg (update-in [:kaocha/reporter]
-                                       (fn [rs] (conj (or rs [])
-                                                      (portal-reporter))))))
+(defn install "Add a reporter to the reporter stack"
+  [cfg] (-> cfg (update-in [:kaocha/reporter]
+                           (fn [rs] (conj (or rs [])
+                                          (portal-reporter))))))
